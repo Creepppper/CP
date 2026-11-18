@@ -1,4 +1,5 @@
 #include "parser.h"
+#include <algorithm>
 #include <sstream>
 
 namespace{
@@ -6,6 +7,8 @@ const char* names[]={
     "","begin","end","integer","if","then","else","function","read","write",
     "identifier","number","=","<>","<=","<",">=",">","-","*",":=","(",")",";","EOLN","EOF"
 };
+const std::size_t noProcedure=static_cast<std::size_t>(-1);
+bool statementStart(int kind){ return kind==Read || kind==Write || kind==Identifier || kind==If; }
 }
 
 bool readTokens(std::istream& input,std::vector<Token>& tokens,std::string& error){
@@ -58,13 +61,13 @@ bool readTokens(std::istream& input,std::vector<Token>& tokens,std::string& erro
 
 Parser::Parser(const std::vector<Token>& tokens):tokens(tokens){}
 
-const std::string& Parser::error() const{ return message; }
+const std::vector<std::string>& Parser::errors() const{ return messages; }
 
 const std::vector<Procedure>& Parser::procedures() const{ return table; }
 
 bool Parser::accept(int kind){
     if(tokens[pos].kind!=kind) return false;
-    ++pos;
+    if(kind!=Eof) ++pos;
     return true;
 }
 
@@ -75,70 +78,129 @@ bool Parser::expect(int kind){
 
 bool Parser::fail(const std::string& expected){
     const Token& token=tokens[pos];
-    message="***LINE:"+std::to_string(token.line)+" Expected "+expected+", got '"+token.text+"'";
+    messages.push_back("***LINE:"+std::to_string(token.line)+" Expected "+expected+", got '"+token.text+"'");
     return false;
 }
 
 bool Parser::validName(const Token& token){
     if(token.text.size()<=16) return true;
-    message="***LINE:"+std::to_string(token.line)+" Symbol table error: name '"+token.text+"' exceeds 16 characters";
+    messages.push_back("***LINE:"+std::to_string(token.line)+" Symbol table error: name '"+token.text+"' exceeds 16 characters");
     return false;
+}
+
+void Parser::sync(std::initializer_list<int> stops){
+    while(tokens[pos].kind!=Eof && std::find(stops.begin(),stops.end(),tokens[pos].kind)==stops.end()) ++pos;
 }
 
 bool Parser::parse(){
     table.push_back({"<main>","-",0,-1,-1,{},false});
-    if(!block(0) || !expect(Eof)) return false;
+    block(0);
+    if(!expect(Eof)) sync({Eof});
     int address=0;
     for(auto& procedure:table){
         if(!procedure.variables.empty()) procedure.first=address;
         for(auto& variable:procedure.variables) variable.address=address++;
         if(!procedure.variables.empty()) procedure.last=address-1;
     }
-    return true;
+    return messages.empty();
 }
 
-bool Parser::block(std::size_t procedure){
-    if(!expect(Begin) || !declaration(procedure) || !expect(Semicolon)) return false;
+void Parser::block(std::size_t procedure){
+    if(!expect(Begin) && tokens[pos].kind==Eof) return;
+    if(tokens[pos].kind!=Integer) fail("integer declaration");
     while(tokens[pos].kind==Integer){
-        if(!declaration(procedure) || !expect(Semicolon)) return false;
+        declaration(procedure);
+        if(accept(Semicolon)) continue;
+        fail(";");
+        sync({Semicolon,Integer,Read,Write,Identifier,If,End,Else});
+        accept(Semicolon);
     }
-    return statementList() && expect(End);
+    statementList();
+    expect(End);
 }
 
-bool Parser::declaration(std::size_t procedure){
-    if(!expect(Integer)) return false;
+void Parser::declaration(std::size_t procedure){
+    accept(Integer);
     if(tokens[pos].kind==Identifier){
         const Token& name=tokens[pos++];
-        if(!validName(name)) return false;
-        Procedure& current=table[procedure];
-        if(!current.parameterDeclared && !current.variables.empty() && current.variables[0].kind==1 && current.variables[0].name==name.text) current.parameterDeclared=true;
-        else current.variables.push_back({name.text,0,"integer",current.level,-1});
-        return true;
+        if(validName(name) && procedure!=noProcedure){
+            Procedure& current=table[procedure];
+            if(!current.parameterDeclared && !current.variables.empty() && current.variables[0].kind==1 && current.variables[0].name==name.text) current.parameterDeclared=true;
+            else current.variables.push_back({name.text,0,"integer",current.level,-1});
+        }
+        return;
     }
-    if(!accept(Function)) return fail("identifier or function");
-    const Token& name=tokens[pos];
-    if(!expect(Identifier) || !validName(name) || !expect(LeftParen)) return false;
-    const Token& parameter=tokens[pos];
-    if(!expect(Identifier) || !validName(parameter) || !expect(RightParen) || !expect(Semicolon)) return false;
-    std::size_t child=table.size();
-    int level=table[procedure].level+1;
-    table.push_back({name.text,"integer",level,-1,-1,{},false});
-    table[child].variables.push_back({parameter.text,1,"integer",level,-1});
-    return block(child);
+    if(!accept(Function)){
+        fail("identifier or function");
+        return;
+    }
+    const Token* name=nullptr;
+    const Token* parameter=nullptr;
+    if(tokens[pos].kind==Identifier) name=&tokens[pos++];
+    else fail("identifier");
+    bool nameValid=name && validName(*name);
+    if(!expect(LeftParen) && tokens[pos].kind!=Identifier && tokens[pos].kind!=RightParen) return;
+    if(tokens[pos].kind==Identifier) parameter=&tokens[pos++];
+    else fail("identifier");
+    bool parameterValid=parameter && validName(*parameter);
+    if(!expect(RightParen) && tokens[pos].kind!=Semicolon && tokens[pos].kind!=Begin) return;
+    if(!expect(Semicolon) && tokens[pos].kind!=Begin) return;
+    std::size_t child=noProcedure;
+    if(procedure!=noProcedure && nameValid && parameterValid){
+        child=table.size();
+        int level=table[procedure].level+1;
+        table.push_back({name->text,"integer",level,-1,-1,{},false});
+        table[child].variables.push_back({parameter->text,1,"integer",level,-1});
+    }
+    block(child);
 }
 
-bool Parser::statementList(){
-    if(!statement()) return false;
-    while(accept(Semicolon)){
-        if(!statement()) return false;
+void Parser::statementList(){
+    bool needStatement=true;
+    while(true){
+        int kind=tokens[pos].kind;
+        if(statementStart(kind)){
+            if(!needStatement) fail(";");
+            statement();
+            needStatement=false;
+        }else if(kind==Semicolon){
+            if(needStatement) fail("statement");
+            ++pos;
+            needStatement=true;
+        }else if(kind==End || kind==Else || kind==Eof){
+            if(needStatement) fail("statement");
+            return;
+        }else{
+            fail(needStatement?"statement":"; or end");
+            sync({Semicolon,End,Else,Read,Write,Identifier,If});
+        }
     }
-    return true;
 }
 
 bool Parser::statement(){
-    if(accept(Read) || accept(Write)) return expect(LeftParen) && expect(Identifier) && expect(RightParen);
+    if(accept(Read) || accept(Write)){
+        bool left=expect(LeftParen);
+        if(!left && tokens[pos].kind!=Identifier) return false;
+        bool name=expect(Identifier);
+        if(!name && tokens[pos].kind!=RightParen) return false;
+        bool right=expect(RightParen);
+        return left && name && right;
+    }
     if(accept(Identifier)) return expect(Assign) && expression();
-    if(accept(If)) return condition() && expect(Then) && statement() && expect(Else) && statement();
+    if(accept(If)){
+        bool cond=condition();
+        if(!cond) sync({Then,Semicolon,Else,End});
+        bool then=expect(Then);
+        bool yes=statement();
+        if(!yes) sync({Semicolon,Else,End});
+        if(tokens[pos].kind==Semicolon && tokens[pos+1].kind==Else){
+            fail("else");
+            ++pos;
+        }
+        if(!expect(Else)) return false;
+        bool no=statement();
+        return cond && then && yes && no;
+    }
     return fail("statement");
 }
 

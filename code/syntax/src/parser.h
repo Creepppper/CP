@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <initializer_list>
 #include <istream>
 #include <string>
 #include <vector>
@@ -41,22 +42,23 @@ class Parser{
 public:
     explicit Parser(const std::vector<Token>& tokens);
     bool parse();
-    const std::string& error() const;
+    const std::vector<std::string>& errors() const;
     const std::vector<Procedure>& procedures() const;
 
 private:
     const std::vector<Token>& tokens;
     std::size_t pos=0;
-    std::string message;
+    std::vector<std::string> messages;
     std::vector<Procedure> table;
 
     bool accept(int kind);
     bool expect(int kind);
     bool fail(const std::string& expected);
     bool validName(const Token& token);
-    bool block(std::size_t procedure);
-    bool declaration(std::size_t procedure);
-    bool statementList();
+    void sync(std::initializer_list<int> stops);
+    void block(std::size_t procedure);
+    void declaration(std::size_t procedure);
+    void statementList();
     bool statement();
     bool condition();
     bool expression();
