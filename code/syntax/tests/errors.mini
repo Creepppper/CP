@@ -1,0 +1,8 @@
+begin
+  integer x
+  integer y;
+  read(x)
+  write(y);
+  x:=;
+  read();
+end

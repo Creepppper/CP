@@ -1,0 +1,21 @@
+begin
+  integer a;
+  integer function F(n);
+    begin
+      integer n;
+      integer z;
+      integer function G(t);
+        begin
+          integer t;
+          integer u;
+          G:=t-u*2
+        end;
+      integer after;
+      if n>0 then F:=G(n)
+      else F:=z
+    end;
+  integer b;
+  read(a);
+  b:=F(a);
+  write(b)
+end
