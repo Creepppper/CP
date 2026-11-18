@@ -24,5 +24,9 @@ int main(int argc,char* argv[]){
         return 1;
     }
     std::cout<<"Syntax analysis succeeded.\n";
+    std::cout<<"Variables (vname vproc vkind vtype vlev vadr):\n";
+    for(const auto& p:parser.procedures()) for(const auto& v:p.variables) std::cout<<v.name<<' '<<p.name<<' '<<v.kind<<' '<<v.type<<' '<<v.level<<' '<<v.address<<'\n';
+    std::cout<<"Procedures (pname ptype plev fadr ladr):\n";
+    for(const auto& p:parser.procedures()) std::cout<<p.name<<' '<<p.type<<' '<<p.level<<' '<<p.first<<' '<<p.last<<'\n';
     return 0;
 }

@@ -60,6 +60,8 @@ Parser::Parser(const std::vector<Token>& tokens):tokens(tokens){}
 
 const std::string& Parser::error() const{ return message; }
 
+const std::vector<Procedure>& Parser::procedures() const{ return table; }
+
 bool Parser::accept(int kind){
     if(tokens[pos].kind!=kind) return false;
     ++pos;
@@ -77,22 +79,52 @@ bool Parser::fail(const std::string& expected){
     return false;
 }
 
-bool Parser::parse(){ return block() && expect(Eof); }
+bool Parser::validName(const Token& token){
+    if(token.text.size()<=16) return true;
+    message="***LINE:"+std::to_string(token.line)+" Symbol table error: name '"+token.text+"' exceeds 16 characters";
+    return false;
+}
 
-bool Parser::block(){
-    if(!expect(Begin) || !declaration() || !expect(Semicolon)) return false;
+bool Parser::parse(){
+    table.push_back({"<main>","-",0,-1,-1,{},false});
+    if(!block(0) || !expect(Eof)) return false;
+    int address=0;
+    for(auto& procedure:table){
+        if(!procedure.variables.empty()) procedure.first=address;
+        for(auto& variable:procedure.variables) variable.address=address++;
+        if(!procedure.variables.empty()) procedure.last=address-1;
+    }
+    return true;
+}
+
+bool Parser::block(std::size_t procedure){
+    if(!expect(Begin) || !declaration(procedure) || !expect(Semicolon)) return false;
     while(tokens[pos].kind==Integer){
-        if(!declaration() || !expect(Semicolon)) return false;
+        if(!declaration(procedure) || !expect(Semicolon)) return false;
     }
     return statementList() && expect(End);
 }
 
-bool Parser::declaration(){
+bool Parser::declaration(std::size_t procedure){
     if(!expect(Integer)) return false;
-    if(accept(Identifier)) return true;
+    if(tokens[pos].kind==Identifier){
+        const Token& name=tokens[pos++];
+        if(!validName(name)) return false;
+        Procedure& current=table[procedure];
+        if(!current.parameterDeclared && !current.variables.empty() && current.variables[0].kind==1 && current.variables[0].name==name.text) current.parameterDeclared=true;
+        else current.variables.push_back({name.text,0,"integer",current.level,-1});
+        return true;
+    }
     if(!accept(Function)) return fail("identifier or function");
-    return expect(Identifier) && expect(LeftParen) && expect(Identifier) && expect(RightParen)
-        && expect(Semicolon) && block();
+    const Token& name=tokens[pos];
+    if(!expect(Identifier) || !validName(name) || !expect(LeftParen)) return false;
+    const Token& parameter=tokens[pos];
+    if(!expect(Identifier) || !validName(parameter) || !expect(RightParen) || !expect(Semicolon)) return false;
+    std::size_t child=table.size();
+    int level=table[procedure].level+1;
+    table.push_back({name.text,"integer",level,-1,-1,{},false});
+    table[child].variables.push_back({parameter.text,1,"integer",level,-1});
+    return block(child);
 }
 
 bool Parser::statementList(){
