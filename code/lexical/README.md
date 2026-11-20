@@ -22,3 +22,21 @@ cmake --build build
 ```
 
 结果会写到当前目录下的 `output/`，即 `output/sample1.dyd` 和 `output/sample1.err`。没有词法错误时 `.err` 为空，有错误时程序返回非 0。
+
+### Windows
+
+使用 Visual Studio（PowerShell 或 cmd 中）：
+
+```bat
+cmake -S . -B build
+cmake --build build --config Release
+.\build\Release\mini_lexer.exe tests\sample1.mini
+```
+
+使用 MinGW：
+
+```bat
+cmake -S . -B build -G "MinGW Makefiles"
+cmake --build build
+.\build\mini_lexer.exe tests\sample1.mini
+```

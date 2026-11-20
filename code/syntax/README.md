@@ -30,6 +30,24 @@ cmake --build build
 
 一定要在 `syntax/` 目录下运行。如果在别的目录运行，输出可能会覆盖输入的 `.dyd` 或词法分析的 `.err`，程序会拒绝写入。
 
+### Windows
+
+使用 Visual Studio（PowerShell 或 cmd 中）：
+
+```bat
+cmake -S . -B build
+cmake --build build --config Release
+.\build\Release\mini_parser.exe ..\lexical\output\sample1.dyd
+```
+
+使用 MinGW：
+
+```bat
+cmake -S . -B build -G "MinGW Makefiles"
+cmake --build build
+.\build\mini_parser.exe ..\lexical\output\sample1.dyd
+```
+
 ## 测试
 
 测试需要先把两个程序都编译好：
@@ -41,3 +59,5 @@ cmake -S . -B build
 cmake --build build
 python3 tests/test_pipeline.py
 ```
+
+Windows（Visual Studio）下把第二、四步改为加 `--config Release`，最后一步用 `python tests\test_pipeline.py`。测试脚本会自动找到 `.exe` 和 `Release`/`Debug` 目录下的程序。符号链接测试在 Windows 上需要开发者模式，没有开启时会被跳过。

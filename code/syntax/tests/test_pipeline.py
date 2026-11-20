@@ -5,14 +5,28 @@ import unittest
 
 SYNTAX = Path(__file__).resolve().parents[1]
 LEXICAL = SYNTAX.parent / "lexical"
-LEXER = LEXICAL / "build" / "mini_lexer"
-PARSER = SYNTAX / "build" / "mini_parser"
+
+
+def find_program(build_dir, name):
+    # Windows adds .exe, and Visual Studio puts the result in build/Debug or build/Release.
+    names = [name, name + ".exe"]
+    dirs = [build_dir, build_dir / "Debug", build_dir / "Release"]
+    for directory in dirs:
+        for candidate in names:
+            path = directory / candidate
+            if path.is_file():
+                return path
+    return None
+
+
+LEXER = find_program(LEXICAL / "build", "mini_lexer")
+PARSER = find_program(SYNTAX / "build", "mini_parser")
 
 
 class PipelineTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        if not LEXER.is_file() or not PARSER.is_file():
+        if LEXER is None or PARSER is None:
             raise RuntimeError("Build mini_lexer and mini_parser before running the tests")
 
     def setUp(self):
@@ -232,7 +246,11 @@ u G 0 integer 2 6
         self.assertIn("overwrite", result.stderr)
         self.assertEqual(lexical_error.read_text(), "original\n")
         (out / "case.err").unlink()
-        (out / "case.err").symlink_to(lexical_error)
+        try:
+            (out / "case.err").symlink_to(lexical_error)
+        except (OSError, NotImplementedError):
+            # Windows needs Developer Mode or administrator rights to create symbolic links.
+            self.skipTest("symbolic links are not available on this system")
         result = self.run_program(PARSER, dyd, self.syntax_dir, 1)
         self.assertIn("overwrite", result.stderr)
         self.assertEqual(lexical_error.read_text(), "original\n")
